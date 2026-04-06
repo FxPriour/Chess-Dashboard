@@ -26,7 +26,7 @@ class ChessBoard {
     this.instance = Chessboard(this.elementId, {
       position:   'start',
       orientation: this._orientation,
-      pieceTheme: '/img/chesspieces/wikipedia/{piece}.png',
+      pieceTheme: 'img/chesspieces/wikipedia/{piece}.png',
       // Disable dragging — display only for now
       draggable:  false,
     });
