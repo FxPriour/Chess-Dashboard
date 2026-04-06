@@ -1,0 +1,16 @@
+# Claude Code local settings
+.claude/
+
+# Dependencies (not used here, but safe to exclude)
+node_modules/
+
+# Environment secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

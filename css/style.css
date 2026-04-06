@@ -1,0 +1,499 @@
+/* ═══════════════════════════════════════════════════════════
+   Chess Broadcast Dashboard — styles
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-0:  #0e0e1a;   /* deepest background        */
+  --bg-1:  #14142a;   /* panel / sidebar            */
+  --bg-2:  #1c1c36;   /* card background            */
+  --bg-3:  #262648;   /* hover / subtle border      */
+  --border: #2e2e54;
+
+  --text-0: #e8e8f0;   /* primary text   */
+  --text-1: #9898b8;   /* secondary text */
+  --text-2: #5858808;  /* muted          */
+
+  --accent: #7c6aff;   /* purple accent  */
+
+  /* Eval bar — difficulty palette (color = human difficulty, not advantage) */
+  --diff-easy-lo:  #1b5e20;   /* dark green  — black's share when easy  */
+  --diff-easy-hi:  #69f0ae;   /* bright green — white's share when easy */
+
+  --diff-mid-lo:   #bf360c;   /* dark orange  — black's share when medium */
+  --diff-mid-hi:   #ff9800;   /* bright orange — white's share when medium */
+
+  --diff-hard-lo:  #7f0000;   /* dark red  — black's share when hard    */
+  --diff-hard-hi:  #ff5252;   /* bright red — white's share when hard   */
+
+  --diff-null-lo:  #1c1c36;   /* neutral dark  (no depth yet)           */
+  --diff-null-hi:  #444466;   /* neutral light (no depth yet)           */
+
+  --board-size: 440px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-0);
+  white-space: nowrap;
+}
+
+/* ── Mode tabs ─────────────────────────────────────────────── */
+.mode-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.mode-tab {
+  padding: 4px 14px;
+  border: none;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-1);
+  transition: background 0.15s, color 0.15s;
+}
+.mode-tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+.mode-tab:not(.active):hover {
+  background: var(--bg-3);
+  color: var(--text-0);
+}
+
+.game-input {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.game-input input {
+  flex: 1;
+  min-width: 240px;
+  padding: 7px 12px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-0);
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.game-input input:focus { border-color: var(--accent); }
+
+.game-input button {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+.game-input button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+#connectBtn    { background: var(--accent); color: #fff; }
+#disconnectBtn { background: var(--bg-3);   color: var(--text-1); }
+#loadBtn       { background: var(--accent); color: #fff; }
+#flipBtn {
+  background: var(--bg-3);
+  color: var(--text-0);
+  font-size: 1rem;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+#flipBtn:hover { opacity: 0.8; }
+
+.status {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.status.connected { color: var(--diff-easy-hi); border-color: #2e7d32; }
+.status.error     { color: var(--diff-hard-hi); border-color: #7f0000; }
+
+/* ── Main grid ─────────────────────────────────────────────── */
+main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px 20px;
+  min-height: calc(100vh - 54px);
+}
+
+/* ── Eval Bar ──────────────────────────────────────────────── */
+.eval-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+
+.eval-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-1);
+  font-family: monospace;
+  min-width: 32px;
+  text-align: center;
+}
+
+.eval-bar {
+  width: 32px;
+  height: var(--board-size);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  position: relative;
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+}
+
+.eval-segment {
+  width: 100%;
+  transition: height 0.55s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.55s ease;
+}
+
+/* Top segment = black's share — starts neutral, colored by difficulty */
+.eval-top {
+  height: 50%;
+  background: var(--diff-null-lo);
+}
+
+/* Bottom segment = white's share — starts neutral, colored by difficulty */
+.eval-bottom {
+  height: 50%;
+  background: var(--diff-null-hi);
+}
+
+.eval-midline {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: rgba(255,255,255,0.15);
+  pointer-events: none;
+  transition: top 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Board area ────────────────────────────────────────────── */
+.board-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+#board {
+  width: var(--board-size);
+  height: var(--board-size);
+}
+
+/* Highlight last-move squares */
+#board .square-55d63.highlight-from,
+#board .square-55d63.highlight-to {
+  box-shadow: inset 0 0 0 4px rgba(255, 200, 0, 0.75);
+}
+
+.player-tag {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-1);
+  width: 100%;
+  padding: 0 4px;
+}
+#playerBlack { text-align: right; }
+#playerWhite { text-align: left;  }
+
+.move-ticker {
+  font-size: 0.85rem;
+  color: var(--text-1);
+  font-family: monospace;
+  margin-top: 2px;
+}
+
+/* ── Dashboard aside ───────────────────────────────────────── */
+.dashboard {
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.dash-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-1);
+}
+
+/* Indicator cards */
+.indicator-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 12px 10px;
+  transition: border-color 0.3s;
+}
+.indicator-card.active { border-color: var(--accent); }
+
+.ind-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 7px;
+}
+
+.ind-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-1);
+}
+
+.ind-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-0);
+  font-family: monospace;
+  min-width: 40px;
+  text-align: right;
+}
+
+.ind-track {
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.ind-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+.ind-desc {
+  font-size: 0.72rem;
+  color: var(--text-1);
+  min-height: 1.3em;
+}
+
+/* Engine info box */
+.engine-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.eng-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+}
+.eng-key { color: var(--text-1); }
+.eng-val {
+  color: var(--text-0);
+  font-family: monospace;
+  font-size: 0.8rem;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Replay bar ─────────────────────────────────────────────── */
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: var(--board-size);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+.replay-bar button {
+  background: var(--bg-3);
+  border: none;
+  border-radius: 5px;
+  color: var(--text-0);
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.replay-bar button:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.replay-bar button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+#playPauseBtn { min-width: 32px; }
+
+.replay-speed {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+.speed-label {
+  font-size: 0.68rem;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+#speedSlider {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.move-counter {
+  font-size: 0.78rem;
+  font-family: monospace;
+  color: var(--text-1);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Eval legend ────────────────────────────────────────────── */
+.eval-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.evleg-item {
+  font-size: 0.65rem;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.evleg-item::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.evleg-easy::before { background: var(--diff-easy-hi); }
+.evleg-mid::before  { background: var(--diff-mid-hi);  }
+.evleg-hard::before { background: var(--diff-hard-hi); }
+
+/* ── Scoresheet ─────────────────────────────────────────────── */
+.scoresheet {
+  width: var(--board-size);
+  max-height: 182px;      /* ~8 rows */
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-3) transparent;
+}
+
+.ss-row {
+  display: grid;
+  grid-template-columns: 2.4em 1fr 1fr;
+  align-items: center;
+  padding: 0 4px;
+}
+.ss-row:nth-child(even) { background: rgba(255,255,255,0.02); }
+
+.ss-num {
+  font-size: 0.72rem;
+  color: var(--text-1);
+  font-family: monospace;
+  padding-left: 4px;
+  user-select: none;
+}
+
+.ss-half {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-0);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  min-height: 20px;
+}
+.ss-half:not(:empty):hover { background: var(--bg-3); }
+
+.ss-half.active {
+  background: var(--accent);
+  color: #fff;
+}
+.ss-half.live-marker {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 780px) {
+  :root { --board-size: 320px; }
+  main  { flex-direction: column; align-items: center; }
+  .eval-wrap { flex-direction: row; }
+  .eval-bar  { width: var(--board-size); height: 28px; flex-direction: row; }
+  .eval-top, .eval-bottom { height: 100%; }
+  .eval-midline { top: 0; left: 50%; width: 2px; height: 100%; }
+  .dashboard { width: var(--board-size); }
+}

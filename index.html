@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess Broadcast Dashboard</title>
+
+  <!-- Chessboard styles -->
+  <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ─── Header ─────────────────────────────────────────────────── -->
+  <header>
+    <span class="logo">♟ Chess Broadcast</span>
+
+    <!-- Mode toggle -->
+    <div class="mode-tabs">
+      <button id="modeLiveBtn"   class="mode-tab active">Live</button>
+      <button id="modeReviewBtn" class="mode-tab">Review</button>
+    </div>
+
+    <!-- Live mode controls -->
+    <div class="game-input" id="liveControls">
+      <input
+        id="gameUrl"
+        type="text"
+        placeholder="Lichess URL or 8-char game ID"
+        autocomplete="off"
+        spellcheck="false">
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+
+    <!-- Review mode controls -->
+    <div class="game-input" id="reviewControls" style="display:none">
+      <input
+        id="reviewUrl"
+        type="text"
+        placeholder="Lichess URL or game ID of a finished game"
+        autocomplete="off"
+        spellcheck="false">
+      <button id="loadBtn">Load</button>
+    </div>
+
+    <button id="flipBtn" title="Flip board">⇅</button>
+    <div id="status" class="status">Not connected</div>
+  </header>
+
+  <!-- ─── Main Layout ─────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Eval Bar -->
+    <div class="eval-wrap">
+      <div class="eval-label" id="evalLabelTop">0.0</div>
+      <div class="eval-bar" id="evalBar">
+        <!-- top    = black's share of bar -->
+        <div class="eval-segment eval-top"    id="evalTop"></div>
+        <!-- bottom = white's share of bar -->
+        <div class="eval-segment eval-bottom" id="evalBottom"></div>
+        <!-- centre line marker -->
+        <div class="eval-midline"></div>
+      </div>
+      <div class="eval-label" id="evalLabelBot">0.0</div>
+      <div class="eval-legend">
+        <div class="evleg-item evleg-easy">Many good moves</div>
+        <div class="evleg-item evleg-mid">Key move needed</div>
+        <div class="evleg-item evleg-hard">Only one move works</div>
+      </div>
+    </div>
+
+    <!-- Board -->
+    <div class="board-wrap">
+      <div class="player-tag" id="playerBlack">Black</div>
+      <div id="board"></div>
+      <div class="player-tag" id="playerWhite">White</div>
+      <div class="move-ticker" id="moveTicker">—</div>
+
+      <!-- Review replay controls (hidden in live mode) -->
+      <div class="replay-bar" id="replayBar" style="display:none">
+        <button id="prevMoveBtn" title="Previous move" disabled>←</button>
+        <button id="playPauseBtn" title="Auto-play">▶</button>
+        <button id="nextMoveBtn" title="Next move">→</button>
+        <div class="replay-speed">
+          <span class="speed-label">Slow</span>
+          <input type="range" id="speedSlider" min="1" max="10" value="7">
+          <span class="speed-label">Fast</span>
+        </div>
+        <span class="move-counter" id="moveCounter">0 / 0</span>
+      </div>
+
+      <div class="scoresheet" id="scoresheet"></div>
+    </div>
+
+    <!-- Dashboard Panel -->
+    <aside class="dashboard">
+      <h2 class="dash-title">Live Analysis</h2>
+
+      <div class="indicator-card" id="cardComplexity">
+        <div class="ind-header">
+          <span class="ind-label">Complexity</span>
+          <span class="ind-value" id="valComplexity">—</span>
+        </div>
+        <div class="ind-track"><div class="ind-fill" id="fillComplexity"></div></div>
+        <div class="ind-desc"  id="descComplexity">Awaiting engine…</div>
+      </div>
+
+      <div class="indicator-card" id="cardTension">
+        <div class="ind-header">
+          <span class="ind-label">Position Tension</span>
+          <span class="ind-value" id="valTension">—</span>
+        </div>
+        <div class="ind-track"><div class="ind-fill" id="fillTension"></div></div>
+        <div class="ind-desc"  id="descTension">Awaiting position…</div>
+      </div>
+
+      <div class="indicator-card" id="cardTheory">
+        <div class="ind-header">
+          <span class="ind-label">Theory Distance</span>
+          <span class="ind-value" id="valTheory">—</span>
+        </div>
+        <div class="ind-track"><div class="ind-fill" id="fillTheory"></div></div>
+        <div class="ind-desc"  id="descTheory">Awaiting moves…</div>
+      </div>
+
+      <div class="engine-box">
+        <div class="eng-row">
+          <span class="eng-key">Eval</span>
+          <span class="eng-val" id="engEval">—</span>
+        </div>
+        <div class="eng-row">
+          <span class="eng-key">Depth</span>
+          <span class="eng-val" id="engDepth">—</span>
+        </div>
+        <div class="eng-row">
+          <span class="eng-key">Best move</span>
+          <span class="eng-val" id="engBest">—</span>
+        </div>
+        <div class="eng-row">
+          <span class="eng-key">Engine</span>
+          <span class="eng-val" id="engStatus">loading…</span>
+        </div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ─── Scripts ─────────────────────────────────────────────────── -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <script src="js/engine.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/lichess.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
