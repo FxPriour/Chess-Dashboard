@@ -3,8 +3,12 @@
 **A live chess broadcast tool focused on human difficulty, not just engine evaluation**  
 **Un outil de diffusion d'échecs centré sur la difficulté humaine, pas seulement l'évaluation du moteur**
 
+🔗 **[fxpriour.github.io/Chess-Dashboard](https://fxpriour.github.io/Chess-Dashboard/)**
+
 > *The engine tells you who's winning. The dashboard tells you how hard it is to be human in that position.*  
 > *Le moteur vous dit qui gagne. Le tableau de bord vous dit à quel point la position est difficile à jouer pour un humain.*
+
+⚠️ Work in progress · *En cours de développement*
 
 ---
 
@@ -19,8 +23,6 @@ Chess Dashboard connects to the [Lichess](https://lichess.org) public API to str
 
 Built with: [Lichess API](https://lichess.org/api) · [Stockfish.js](https://github.com/lichess-org/stockfish.js) · [chess.js](https://github.com/jhlywa/chess.js) · [chessboard.js](https://chessboardjs.com) · vanilla HTML/CSS/JS
 
-⚠️ *Work in progress — alive and kicking.*
-
 ---
 
 ## FR — Fonctionnalités
@@ -34,12 +36,12 @@ Chess Dashboard se connecte à l'API publique de [Lichess](https://lichess.org) 
 
 Développé avec : [Lichess API](https://lichess.org/api) · [Stockfish.js](https://github.com/lichess-org/stockfish.js) · [chess.js](https://github.com/jhlywa/chess.js) · [chessboard.js](https://chessboardjs.com) · HTML/CSS/JS vanilla
 
-⚠️ *Projet en cours de développement.*
-
 ---
 
 ## About · À propos
 
-**François-Xavier Priour** — chess player, translator of 40+ chess books (Éditions Olibris), author of [Chess Multitudes](https://chessmultitudes.substack.com) (English-language chess newsletter). Non-developer learning to build tools that don't exist yet.
+**François-Xavier Priour** — chess player, translator of 40+ chess books (Éditions Olibris), author of [Chess Contains Multitudes](https://chessmultitudes.substack.com) (English-language chess newsletter). Non-developer learning to build tools that don't exist yet.
+
+*Joueur d'échecs, traducteur de plus de 40 ouvrages (Éditions Olibris), auteur de [Chess Contains Multitudes](https://chessmultitudes.substack.com). Non-développeur qui apprend à construire des outils qui n'existent pas encore.*
 
 [github.com/FxPriour](https://github.com/FxPriour) · [linkedin.com/in/fxpriour](https://linkedin.com/in/fxpriour)
