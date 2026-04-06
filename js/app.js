@@ -557,6 +557,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ── Review: game loading ──────────────────────────────────────
 
+  /** Detect broadcast URL; returns { roundId, gameId } or null. */
+  function parseBroadcastUrl (input) {
+    const m = input.trim().match(
+      /lichess\.org\/broadcast\/[^/]+\/[^/]+\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)/
+    );
+    return m ? { roundId: m[1], gameId: m[2] } : null;
+  }
+
   /** Parse an 8-char Lichess game ID from a URL or bare ID. */
   function parseGameId (input) {
     const s = input.trim();
@@ -565,16 +573,47 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function reviewFetchAndLoad (urlOrId) {
-    const gameId = parseGameId(urlOrId);
-    if (!gameId) {
-      setStatus('Cannot parse game ID', 'error');
-      return;
-    }
-
     setStatus('Loading…', '');
     $('loadBtn').disabled = true;
 
     try {
+      // ── Broadcast game ────────────────────────────────────────
+      const broadcast = parseBroadcastUrl(urlOrId);
+      if (broadcast) {
+        const { roundId, gameId } = broadcast;
+        const res = await fetch(
+          `https://lichess.org/api/broadcast/round/${roundId}/games`,
+          { headers: { Accept: 'application/x-ndjson' } }
+        );
+        if (!res.ok) {
+          setStatus(res.status === 404 ? `Broadcast round not found` : `HTTP ${res.status}`, 'error');
+          return;
+        }
+        // Read the full NDJSON response and find the matching game
+        const text = await res.text();
+        let pgn = null;
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const data = JSON.parse(trimmed);
+            if (data.id === gameId && data.pgn) { pgn = data.pgn; break; }
+          } catch (e) { /* skip malformed */ }
+        }
+        if (!pgn) {
+          setStatus(`Game "${gameId}" not found in broadcast round`, 'error');
+          return;
+        }
+        reviewLoadPGN(pgn);
+        return;
+      }
+
+      // ── Regular Lichess game ───────────────────────────────────
+      const gameId = parseGameId(urlOrId);
+      if (!gameId) {
+        setStatus('Cannot parse game ID', 'error');
+        return;
+      }
       const res = await fetch(
         `https://lichess.org/game/export/${gameId}?moves=true&clocks=false&evals=false&opening=false`,
         { headers: { Accept: 'application/x-chess-pgn' } }
@@ -585,6 +624,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const pgn = await res.text();
       reviewLoadPGN(pgn);
+
     } catch (err) {
       setStatus(`Network error: ${err.message}`, 'error');
     } finally {

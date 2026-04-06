@@ -1,15 +1,17 @@
 /**
  * lichess.js — Lichess live-game streaming
  *
- * Connects to:  GET https://lichess.org/api/stream/game/{id}
+ * Supports two URL types:
  *
- * The endpoint returns NDJSON (newline-delimited JSON).
- * Each line is a full game-state snapshot; the `moves` field grows as
- * new moves are played.  Authentication is not required for public games.
+ *  1. Regular game:
+ *       https://lichess.org/AbCdEfGh
+ *       Streams:  GET /api/stream/game/{id}  (NDJSON)
  *
- * Two secondary formats are also handled transparently:
- *   • Board-API  gameFull / gameState   (for games the user owns)
- *   • keep-alive empty lines            (ignored)
+ *  2. Broadcast / relay game:
+ *       https://lichess.org/broadcast/{slug}/{slug}/{roundId}/{gameId}
+ *       Streams:  GET /api/broadcast/round/{roundId}/games  (NDJSON)
+ *       Each NDJSON line is one game in the round; we filter by gameId.
+ *       Each line contains a `pgn` field with full PGN including headers.
  *
  * Public API
  * ──────────
@@ -35,6 +37,7 @@ class LichessStream {
     this._chess         = null;
     this._moveCount     = 0;
     this._prevFen       = null;
+    this._initialized   = false;   // used by broadcast path
 
     // Callbacks — overwritten by app.js
     this.onConnect  = () => {};
@@ -47,31 +50,42 @@ class LichessStream {
   // ─── Public ──────────────────────────────────────────────────
 
   async connect (urlOrId) {
+    this.disconnect();
+    this._chess       = new Chess();
+    this._moveCount   = 0;
+    this._prevFen     = null;
+    this._initialized = false;
+
+    // ── Broadcast URL? ────────────────────────────────────────
+    const broadcast = this._parseBroadcastUrl(urlOrId);
+    if (broadcast) {
+      this.gameId = broadcast.gameId;
+      this.onConnect({ gameId: broadcast.gameId });
+      try {
+        this._abortCtrl = new AbortController();
+        await this._connectBroadcast(broadcast.roundId, broadcast.gameId);
+      } catch (err) {
+        if (err.name !== 'AbortError') this.onError(`Network error: ${err.message}`);
+      }
+      return;
+    }
+
+    // ── Regular game ──────────────────────────────────────────
     const gameId = this._parseGameId(urlOrId);
     if (!gameId) {
       this.onError('Cannot parse game ID — paste a Lichess URL or the 8-char ID directly.');
       return;
     }
 
-    this.disconnect();
-    this.gameId     = gameId;
-    this._chess     = new Chess();
-    this._moveCount = 0;
-    this._prevFen   = null;
-
+    this.gameId = gameId;
     this.onConnect({ gameId });
 
     try {
       this._abortCtrl = new AbortController();
-
       const res = await fetch(
         `https://lichess.org/api/stream/game/${gameId}`,
-        {
-          headers: { Accept: 'application/x-ndjson' },
-          signal:  this._abortCtrl.signal,
-        }
+        { headers: { Accept: 'application/x-ndjson' }, signal: this._abortCtrl.signal }
       );
-
       if (!res.ok) {
         const msg = res.status === 404
           ? `Game "${gameId}" not found. Check it is public and has started.`
@@ -79,13 +93,9 @@ class LichessStream {
         this.onError(msg);
         return;
       }
-
       await this._readStream(res.body);
-
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        this.onError(`Network error: ${err.message}`);
-      }
+      if (err.name !== 'AbortError') this.onError(`Network error: ${err.message}`);
     }
   }
 
@@ -96,7 +106,125 @@ class LichessStream {
     }
   }
 
-  // ─── Stream reader ───────────────────────────────────────────
+  // ─── Broadcast path ──────────────────────────────────────────
+
+  async _connectBroadcast (roundId, gameId) {
+    const res = await fetch(
+      `https://lichess.org/api/broadcast/round/${roundId}/games`,
+      { headers: { Accept: 'application/x-ndjson' }, signal: this._abortCtrl.signal }
+    );
+    if (!res.ok) {
+      this.onError(
+        res.status === 404
+          ? `Broadcast round "${roundId}" not found.`
+          : `Lichess API returned HTTP ${res.status}.`
+      );
+      return;
+    }
+    await this._readBroadcastStream(res.body, gameId);
+  }
+
+  async _readBroadcastStream (body, targetGameId) {
+    const reader  = body.getReader();
+    const decoder = new TextDecoder();
+    let   buffer  = '';
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) { this.onGameEnd({ reason: 'stream closed' }); break; }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const data = JSON.parse(trimmed);
+            if (data.id === targetGameId) this._handleBroadcastGame(data);
+          } catch (e) {
+            console.warn('[Lichess] Broadcast parse error:', line);
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') this.onError(`Broadcast stream error: ${err.message}`);
+    }
+  }
+
+  /**
+   * Process one broadcast game snapshot.
+   * Each snapshot contains a full PGN with all moves played so far.
+   * We diff against this._moveCount to emit only new moves incrementally.
+   */
+  _handleBroadcastGame (data) {
+    console.debug('[Lichess Broadcast]', data);
+
+    // Surface player names
+    const white = data.players?.white ?? data.white;
+    const black = data.players?.black ?? data.black;
+    if (white || black) this.onInfo({ white, black });
+
+    if (!data.pgn) return;
+
+    // Parse PGN into a temp chess instance
+    const tmp = new Chess();
+    const ok  = tmp.load_pgn(data.pgn);
+    if (!ok) {
+      console.warn('[Lichess] Could not parse broadcast PGN');
+      return;
+    }
+
+    const history    = tmp.history({ verbose: true });
+    const totalMoves = history.length;
+
+    // ── First snapshot: jump silently to current position ─────
+    if (!this._initialized) {
+      this._initialized = true;
+
+      // Advance this._chess to match current position
+      for (const mv of history) {
+        this._chess.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
+      }
+      this._moveCount = totalMoves;
+
+      const last = history[totalMoves - 1] ?? null;
+      this.onMove({
+        fen:         this._chess.fen(),
+        lastMoveUci: last ? `${last.from}${last.to}${last.promotion ?? ''}` : null,
+        lastMoveSan: last?.san ?? null,
+        moveNumber:  totalMoves,
+        isInitial:   true,
+        turn:        this._chess.turn(),
+      });
+
+    // ── Subsequent snapshots: apply only new moves ─────────────
+    } else if (totalMoves > this._moveCount) {
+      const newMoves = history.slice(this._moveCount);
+      for (const mv of newMoves) {
+        const applied = this._chess.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
+        if (!applied) break;
+        this._moveCount++;
+        this.onMove({
+          fen:         this._chess.fen(),
+          lastMoveUci: `${mv.from}${mv.to}${mv.promotion ?? ''}`,
+          lastMoveSan: applied.san,
+          moveNumber:  this._moveCount,
+          isInitial:   false,
+          turn:        this._chess.turn(),
+        });
+      }
+    }
+
+    // Detect game end from PGN Result header
+    const resultMatch = data.pgn.match(/\[Result "([^"]+)"\]/);
+    const result      = resultMatch?.[1];
+    if (result && result !== '*') this.onGameEnd({ status: result });
+  }
+
+  // ─── Regular game stream ──────────────────────────────────────
 
   async _readStream (body) {
     const reader  = body.getReader();
@@ -106,18 +234,15 @@ class LichessStream {
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) {
-          this.onGameEnd({ reason: 'stream closed' });
-          break;
-        }
+        if (done) { this.onGameEnd({ reason: 'stream closed' }); break; }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop();           // keep any incomplete final chunk
+        buffer = lines.pop();
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed) continue;       // keep-alive ping — ignore
+          if (!trimmed) continue;
           try {
             this._handleData(JSON.parse(trimmed));
           } catch (e) {
@@ -126,127 +251,66 @@ class LichessStream {
         }
       }
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        this.onError(`Stream error: ${err.message}`);
-      }
+      if (err.name !== 'AbortError') this.onError(`Stream error: ${err.message}`);
     }
   }
 
-  // ─── Event routing ───────────────────────────────────────────
-
   _handleData (data) {
-    console.debug('[Lichess]', data);   // helpful when debugging in DevTools
+    console.debug('[Lichess]', data);
 
-    // ── Board-API format (gameFull) ───────────────────────────
     if (data.type === 'gameFull') {
-      this.onInfo({
-        white:   data.white,
-        black:   data.black,
-        clock:   data.clock,
-        variant: data.variant,
-        speed:   data.speed,
-      });
+      this.onInfo({ white: data.white, black: data.black, clock: data.clock, variant: data.variant, speed: data.speed });
       this._applyMoveString(data.state?.moves ?? '');
       return;
     }
-
-    // ── Board-API format (gameState update) ───────────────────
     if (data.type === 'gameState') {
       this._applyMoveString(data.moves ?? '');
       const ended = data.status && data.status !== 'started' && data.status !== 'created';
       if (ended) this.onGameEnd({ status: data.status, winner: data.winner });
       return;
     }
-
-    // ── Streaming format: initial game metadata ───────────────
-    // First message has { id, players, speed, … } but no fen/type
     if (data.id && data.players && !data.fen) {
-      this.onInfo({
-        white: data.players.white,
-        black: data.players.black,
-      });
+      this.onInfo({ white: data.players.white, black: data.players.black });
       return;
     }
-
-    // ── Streaming format: per-move position update ────────────
-    // Subsequent messages have { fen, lm?, wc, bc }
     if (data.fen) {
       this._applyFenUpdate(data.fen, data.lm ?? null);
       return;
     }
-
-    // ── stream/game format (top-level game snapshot) ──────────
     if (typeof data.moves === 'string') {
-      // Surface player names if available
-      if (data.players) {
-        this.onInfo({
-          white: data.players.white,
-          black: data.players.black,
-        });
-      }
-
+      if (data.players) this.onInfo({ white: data.players.white, black: data.players.black });
       this._applyMoveString(data.moves);
-
-      // Check for terminal status
       const status = data.status?.name ?? data.status;
-      if (status && status !== 'started' && status !== 'created') {
-        this.onGameEnd({ status });
-      }
+      if (status && status !== 'started' && status !== 'created') this.onGameEnd({ status });
       return;
     }
 
     console.debug('[Lichess] Unrecognised event format:', data);
   }
 
-  // ─── Move application ────────────────────────────────────────
-
-  /**
-   * Handle a { fen, lm } streaming update.
-   * Converts the UCI last-move to SAN using the previous position.
-   */
   _applyFenUpdate (fen, lm) {
-    const parts    = fen.split(' ');
-    const turn     = parts[1];                         // 'w' or 'b'
-    const fullMove = parseInt(parts[5], 10);
+    const parts     = fen.split(' ');
+    const turn      = parts[1];
+    const fullMove  = parseInt(parts[5], 10);
     const halfMoves = (fullMove - 1) * 2 + (turn === 'b' ? 1 : 0);
 
     let lastMoveSan = null;
     if (lm && this._prevFen) {
       const tmp = new Chess();
       tmp.load(this._prevFen);
-      const move = tmp.move({
-        from: lm.slice(0, 2),
-        to:   lm.slice(2, 4),
-        promotion: lm.length === 5 ? lm[4] : undefined,
-      });
+      const move = tmp.move({ from: lm.slice(0, 2), to: lm.slice(2, 4), promotion: lm.length === 5 ? lm[4] : undefined });
       if (move) lastMoveSan = move.san;
     }
 
     this._prevFen   = fen;
     this._moveCount = halfMoves;
-
-    this.onMove({
-      fen,
-      lastMoveUci: lm,
-      lastMoveSan,
-      moveNumber:  halfMoves,
-      isInitial:   !lm,
-      turn,
-    });
+    this.onMove({ fen, lastMoveUci: lm, lastMoveSan, moveNumber: halfMoves, isInitial: !lm, turn });
   }
 
-  /**
-   * Apply moves from a space-separated UCI move string.
-   * If this is the first batch (join mid-game), we jump silently to the
-   * current position then fire a single onMove with isInitial:true.
-   * Subsequent calls animate one move at a time.
-   */
   _applyMoveString (movesStr) {
     const all = movesStr.trim() ? movesStr.trim().split(/\s+/) : [];
-
     if (all.length === 0) return;
 
-    // ── Initial bulk-load: jump silently to current position ──
     if (this._moveCount === 0) {
       for (const uci of all) {
         if (!this._applyUCI(uci)) break;
@@ -255,7 +319,7 @@ class LichessStream {
       this.onMove({
         fen:         this._chess.fen(),
         lastMoveUci: all[all.length - 1] ?? null,
-        lastMoveSan: null,            // SAN not tracked on initial load
+        lastMoveSan: null,
         moveNumber:  this._moveCount,
         isInitial:   true,
         turn:        this._chess.turn(),
@@ -263,14 +327,10 @@ class LichessStream {
       return;
     }
 
-    // ── Incremental: play each new move with an event ─────────
     while (this._moveCount < all.length) {
       const uci  = all[this._moveCount];
       const move = this._applyUCI(uci);
-      if (!move) {
-        console.warn('[Lichess] Could not apply UCI move:', uci, 'FEN:', this._chess.fen());
-        break;
-      }
+      if (!move) { console.warn('[Lichess] Could not apply UCI move:', uci); break; }
       this._moveCount++;
       this.onMove({
         fen:         this._chess.fen(),
@@ -283,27 +343,28 @@ class LichessStream {
     }
   }
 
-  /**
-   * Apply a single UCI move (e.g. "e2e4", "e7e8q") to the internal Chess
-   * instance.  Returns the move object on success, null on failure.
-   */
   _applyUCI (uci) {
     if (!uci || uci.length < 4) return null;
-    const from      = uci.slice(0, 2);
-    const to        = uci.slice(2, 4);
-    const promotion = uci.length === 5 ? uci[4] : undefined;
-    return this._chess.move({ from, to, promotion }) ?? null;
+    return this._chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length === 5 ? uci[4] : undefined }) ?? null;
   }
 
-  // ─── Helpers ─────────────────────────────────────────────────
+  // ─── URL parsers ──────────────────────────────────────────────
 
   /**
-   * Extract an 8-char Lichess game ID from a URL or bare ID.
-   * Handles:
-   *   https://lichess.org/AbCdEfGh
-   *   https://lichess.org/AbCdEfGh/white
-   *   https://lichess.org/game/export/AbCdEfGh
-   *   AbCdEfGh
+   * Detect a broadcast URL and extract roundId + gameId.
+   * Pattern: lichess.org/broadcast/{slug}/{slug}/{roundId}/{gameId}
+   * Returns { roundId, gameId } or null.
+   */
+  _parseBroadcastUrl (input) {
+    const m = input.trim().match(
+      /lichess\.org\/broadcast\/[^/]+\/[^/]+\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)/
+    );
+    return m ? { roundId: m[1], gameId: m[2] } : null;
+  }
+
+  /**
+   * Extract a Lichess game ID (8–12 alphanumeric chars) from a URL or bare ID.
+   * Handles: https://lichess.org/AbCdEfGh[/white], /game/export/AbCdEfGh, bare IDs.
    */
   _parseGameId (input) {
     const s = input.trim();
