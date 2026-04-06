@@ -129,6 +129,28 @@ header {
 #connectBtn    { background: var(--accent); color: #fff; }
 #disconnectBtn { background: var(--bg-3);   color: var(--text-1); }
 #loadBtn       { background: var(--accent); color: #fff; }
+#loadPgnBtn    { background: var(--accent); color: #fff; }
+
+/* PGN textarea */
+.pgn-controls { align-items: flex-start; }
+
+.pgn-textarea {
+  flex: 1;
+  min-width: 200px;
+  height: 58px;
+  padding: 7px 12px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-0);
+  font-size: 0.78rem;
+  font-family: monospace;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.pgn-textarea:focus { border-color: var(--accent); }
 #flipBtn {
   background: var(--bg-3);
   color: var(--text-0);

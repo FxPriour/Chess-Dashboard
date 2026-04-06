@@ -35,13 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── DOM references ───────────────────────────────────────────
   const $ = id => document.getElementById(id);
 
-  const connectBtn    = $('connectBtn');
-  const disconnectBtn = $('disconnectBtn');
-  const flipBtn       = $('flipBtn');
-  const gameUrlInput  = $('gameUrl');
+  const connectBtn     = $('connectBtn');
+  const disconnectBtn  = $('disconnectBtn');
+  const flipBtn        = $('flipBtn');
+  const gameUrlInput   = $('gameUrl');
   const reviewUrlInput = $('reviewUrl');
-  const statusEl      = $('status');
-  const scoresheetEl  = $('scoresheet');
+  const pgnInput       = $('pgnInput');
+  const statusEl       = $('status');
+  const scoresheetEl   = $('scoresheet');
 
   // ── Move history & browse state ──────────────────────────────
   const moveHistory = [];   // { fen, uci, san }
@@ -532,11 +533,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function switchMode (mode) {
     currentMode = mode;
-    $('modeLiveBtn').classList.toggle('active', mode === 'live');
+    $('modeLiveBtn').classList.toggle('active',   mode === 'live');
     $('modeReviewBtn').classList.toggle('active', mode === 'review');
+    $('modePgnBtn').classList.toggle('active',    mode === 'pgn');
     $('liveControls').style.display   = mode === 'live'   ? '' : 'none';
     $('reviewControls').style.display = mode === 'review' ? '' : 'none';
-    $('replayBar').style.display      = mode === 'review' ? '' : 'none';
+    $('pgnControls').style.display    = mode === 'pgn'    ? '' : 'none';
+    $('replayBar').style.display      = (mode === 'review' || mode === 'pgn') ? '' : 'none';
 
     if (mode === 'live') {
       reviewStopAutoPlay();
@@ -548,12 +551,18 @@ document.addEventListener('DOMContentLoaded', () => {
       stream.disconnect();
       engine.stop();
       clearIndicators();
-      setStatus('Paste a finished Lichess game URL and click Load', '');
+      setStatus(
+        mode === 'review'
+          ? 'Paste a Lichess game URL and click Load'
+          : 'Paste a PGN and click Load PGN (or Ctrl+Enter)',
+        ''
+      );
     }
   }
 
   $('modeLiveBtn').addEventListener('click',   () => switchMode('live'));
   $('modeReviewBtn').addEventListener('click', () => switchMode('review'));
+  $('modePgnBtn').addEventListener('click',    () => switchMode('pgn'));
 
   // ── Review: game loading ──────────────────────────────────────
 
@@ -691,6 +700,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   reviewUrlInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') $('loadBtn').click();
+  });
+
+  $('loadPgnBtn').addEventListener('click', () => {
+    const pgn = pgnInput.value.trim();
+    if (!pgn) { pgnInput.focus(); return; }
+    reviewLoadPGN(pgn);
+  });
+  pgnInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) $('loadPgnBtn').click();
   });
 
   // ── Review: navigation ────────────────────────────────────────

@@ -21,6 +21,7 @@
     <div class="mode-tabs">
       <button id="modeLiveBtn"   class="mode-tab active">Live</button>
       <button id="modeReviewBtn" class="mode-tab">Review</button>
+      <button id="modePgnBtn"    class="mode-tab">PGN</button>
     </div>
 
     <!-- Live mode controls -->
@@ -44,6 +45,17 @@
         autocomplete="off"
         spellcheck="false">
       <button id="loadBtn">Load</button>
+    </div>
+
+    <!-- PGN paste controls -->
+    <div class="game-input pgn-controls" id="pgnControls" style="display:none">
+      <textarea
+        id="pgnInput"
+        class="pgn-textarea"
+        placeholder="Paste PGN here… (Ctrl+Enter to load)"
+        spellcheck="false"
+        autocomplete="off"></textarea>
+      <button id="loadPgnBtn">Load PGN</button>
     </div>
 
     <button id="flipBtn" title="Flip board">⇅</button>
