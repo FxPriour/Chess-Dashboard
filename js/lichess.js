@@ -5,13 +5,13 @@
  *
  *  1. Regular game:
  *       https://lichess.org/AbCdEfGh
- *       Streams:  GET /api/stream/game/{id}  (NDJSON)
+ *       Streams:  GET /api/stream/game/{id}  (NDJSON, keep-alive)
  *
  *  2. Broadcast / relay game:
  *       https://lichess.org/broadcast/{slug}/{slug}/{roundId}/{gameId}
- *       Streams:  GET /api/broadcast/round/{roundId}/games  (NDJSON)
- *       Each NDJSON line is one game in the round; we filter by gameId.
- *       Each line contains a `pgn` field with full PGN including headers.
+ *       Fetches:  GET /api/broadcast/round/{roundId}.pgn  (multi-game PGN)
+ *       The specific game is found by searching for gameId in the PGN headers.
+ *       Live updates use 5-second polling (no unauthenticated streaming API exists).
  *
  * Public API
  * ──────────
@@ -23,12 +23,14 @@
  * ─────────────────────────────────────
  *   stream.onConnect({ gameId })
  *   stream.onMove({ fen, lastMoveUci, lastMoveSan, moveNumber, isInitial, turn })
- *   stream.onInfo({ white, black, clock, variant, speed })
+ *   stream.onInfo({ white, black })
  *   stream.onGameEnd({ reason, status })
  *   stream.onError(message)
  */
 
 /* global Chess */
+
+const BROADCAST_POLL_MS = 5000;
 
 class LichessStream {
   constructor () {
@@ -37,7 +39,8 @@ class LichessStream {
     this._chess         = null;
     this._moveCount     = 0;
     this._prevFen       = null;
-    this._initialized   = false;   // used by broadcast path
+    this._initialized   = false;
+    this._pollInterval  = null;
 
     // Callbacks — overwritten by app.js
     this.onConnect  = () => {};
@@ -100,6 +103,7 @@ class LichessStream {
   }
 
   disconnect () {
+    this._stopPolling();
     if (this._abortCtrl) {
       this._abortCtrl.abort();
       this._abortCtrl = null;
@@ -108,71 +112,67 @@ class LichessStream {
 
   // ─── Broadcast path ──────────────────────────────────────────
 
+  /**
+   * Fetch the round PGN once, load the specific game, then poll for updates.
+   * The endpoint /api/broadcast/round/{roundId}.pgn returns all games in the
+   * round as a multi-game PGN file.
+   */
   async _connectBroadcast (roundId, gameId) {
-    const res = await fetch(
-      `https://lichess.org/api/broadcast/round/${roundId}/games`,
-      { headers: { Accept: 'application/x-ndjson' }, signal: this._abortCtrl.signal }
-    );
+    const url = `https://lichess.org/api/broadcast/round/${roundId}.pgn`;
+
+    const loaded = await this._fetchBroadcastPGN(url, gameId);
+    if (!loaded) return;   // error already reported
+
+    // If game has a result header it is finished — no need to poll
+    if (this._broadcastGameOver) return;
+
+    // Poll for live updates
+    this._pollInterval = setInterval(async () => {
+      if (!this._abortCtrl) { this._stopPolling(); return; }
+      try {
+        await this._fetchBroadcastPGN(url, gameId);
+        if (this._broadcastGameOver) this._stopPolling();
+      } catch (e) {
+        if (e.name !== 'AbortError') console.warn('[Lichess] Poll error:', e.message);
+      }
+    }, BROADCAST_POLL_MS);
+  }
+
+  /** Fetch the round PGN, find the game, and apply new moves. Returns true on success. */
+  async _fetchBroadcastPGN (url, gameId) {
+    const res = await fetch(url, {
+      headers: { Accept: 'application/x-chess-pgn' },
+      signal:  this._abortCtrl?.signal,
+    });
+
     if (!res.ok) {
       this.onError(
         res.status === 404
-          ? `Broadcast round "${roundId}" not found.`
+          ? `Broadcast round not found. Check the URL is correct.`
           : `Lichess API returned HTTP ${res.status}.`
       );
-      return;
+      return false;
     }
-    await this._readBroadcastStream(res.body, gameId);
-  }
 
-  async _readBroadcastStream (body, targetGameId) {
-    const reader  = body.getReader();
-    const decoder = new TextDecoder();
-    let   buffer  = '';
+    const fullPgn  = await res.text();
+    const gamePgn  = this._findGameInMultiPGN(fullPgn, gameId);
 
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) { this.onGameEnd({ reason: 'stream closed' }); break; }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const data = JSON.parse(trimmed);
-            if (data.id === targetGameId) this._handleBroadcastGame(data);
-          } catch (e) {
-            console.warn('[Lichess] Broadcast parse error:', line);
-          }
-        }
-      }
-    } catch (err) {
-      if (err.name !== 'AbortError') this.onError(`Broadcast stream error: ${err.message}`);
+    if (!gamePgn) {
+      this.onError(`Game "${gameId}" not found in broadcast round.`);
+      return false;
     }
+
+    this._applyBroadcastPGN(gamePgn);
+    return true;
   }
 
   /**
-   * Process one broadcast game snapshot.
-   * Each snapshot contains a full PGN with all moves played so far.
-   * We diff against this._moveCount to emit only new moves incrementally.
+   * Parse a single-game PGN and apply any moves not yet seen.
+   * On the first call (isInitial), jump silently to the current position.
    */
-  _handleBroadcastGame (data) {
-    console.debug('[Lichess Broadcast]', data);
-
-    // Surface player names
-    const white = data.players?.white ?? data.white;
-    const black = data.players?.black ?? data.black;
-    if (white || black) this.onInfo({ white, black });
-
-    if (!data.pgn) return;
-
-    // Parse PGN into a temp chess instance
+  _applyBroadcastPGN (pgn) {
     const tmp = new Chess();
-    const ok  = tmp.load_pgn(data.pgn);
-    if (!ok) {
+    if (!tmp.load_pgn(pgn)) {
       console.warn('[Lichess] Could not parse broadcast PGN');
       return;
     }
@@ -180,11 +180,22 @@ class LichessStream {
     const history    = tmp.history({ verbose: true });
     const totalMoves = history.length;
 
-    // ── First snapshot: jump silently to current position ─────
+    // Extract player names from PGN headers
+    const white = (pgn.match(/\[White "([^"]+)"\]/)    ?? [])[1];
+    const black = (pgn.match(/\[Black "([^"]+)"\]/)    ?? [])[1];
+    const wElo  = (pgn.match(/\[WhiteElo "([^"]+)"\]/) ?? [])[1];
+    const bElo  = (pgn.match(/\[BlackElo "([^"]+)"\]/) ?? [])[1];
+    if (white || black) {
+      this.onInfo({
+        white: white ? { name: white, rating: wElo ? parseInt(wElo) : undefined } : undefined,
+        black: black ? { name: black, rating: bElo ? parseInt(bElo) : undefined } : undefined,
+      });
+    }
+
+    // ── First load: jump silently to current position ─────────
     if (!this._initialized) {
       this._initialized = true;
 
-      // Advance this._chess to match current position
       for (const mv of history) {
         this._chess.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
       }
@@ -200,7 +211,7 @@ class LichessStream {
         turn:        this._chess.turn(),
       });
 
-    // ── Subsequent snapshots: apply only new moves ─────────────
+    // ── Subsequent polls: apply only new moves ─────────────────
     } else if (totalMoves > this._moveCount) {
       const newMoves = history.slice(this._moveCount);
       for (const mv of newMoves) {
@@ -218,10 +229,27 @@ class LichessStream {
       }
     }
 
-    // Detect game end from PGN Result header
-    const resultMatch = data.pgn.match(/\[Result "([^"]+)"\]/);
-    const result      = resultMatch?.[1];
-    if (result && result !== '*') this.onGameEnd({ status: result });
+    // Detect game end from Result header
+    const result = (pgn.match(/\[Result "([^"]+)"\]/) ?? [])[1];
+    this._broadcastGameOver = !!(result && result !== '*');
+    if (this._broadcastGameOver) this.onGameEnd({ status: result });
+  }
+
+  /**
+   * Split a multi-game PGN and return the single game whose headers contain gameId.
+   * Lichess includes the broadcast URL (with the chapter ID) in the [Site] header.
+   */
+  _findGameInMultiPGN (pgn, gameId) {
+    // Games are separated by a blank line followed by '[Event'
+    const games = pgn.split(/(?=\[Event )/).map(s => s.trim()).filter(Boolean);
+    return games.find(g => g.includes(gameId)) ?? null;
+  }
+
+  _stopPolling () {
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
   }
 
   // ─── Regular game stream ──────────────────────────────────────
@@ -350,11 +378,7 @@ class LichessStream {
 
   // ─── URL parsers ──────────────────────────────────────────────
 
-  /**
-   * Detect a broadcast URL and extract roundId + gameId.
-   * Pattern: lichess.org/broadcast/{slug}/{slug}/{roundId}/{gameId}
-   * Returns { roundId, gameId } or null.
-   */
+  /** Returns { roundId, gameId } for broadcast URLs, null otherwise. */
   _parseBroadcastUrl (input) {
     const m = input.trim().match(
       /lichess\.org\/broadcast\/[^/]+\/[^/]+\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)/
@@ -362,10 +386,7 @@ class LichessStream {
     return m ? { roundId: m[1], gameId: m[2] } : null;
   }
 
-  /**
-   * Extract a Lichess game ID (8–12 alphanumeric chars) from a URL or bare ID.
-   * Handles: https://lichess.org/AbCdEfGh[/white], /game/export/AbCdEfGh, bare IDs.
-   */
+  /** Extracts a Lichess game ID (8-12 alphanumeric chars) from a URL or bare ID. */
   _parseGameId (input) {
     const s = input.trim();
     const m = s.match(/(?:lichess\.org\/(?:game\/export\/)?)?([A-Za-z0-9]{8,12})(?:[/?]|$)/);

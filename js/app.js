@@ -582,29 +582,22 @@ document.addEventListener('DOMContentLoaded', () => {
       if (broadcast) {
         const { roundId, gameId } = broadcast;
         const res = await fetch(
-          `https://lichess.org/api/broadcast/round/${roundId}/games`,
-          { headers: { Accept: 'application/x-ndjson' } }
+          `https://lichess.org/api/broadcast/round/${roundId}.pgn`,
+          { headers: { Accept: 'application/x-chess-pgn' } }
         );
         if (!res.ok) {
           setStatus(res.status === 404 ? `Broadcast round not found` : `HTTP ${res.status}`, 'error');
           return;
         }
-        // Read the full NDJSON response and find the matching game
-        const text = await res.text();
-        let pgn = null;
-        for (const line of text.split('\n')) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const data = JSON.parse(trimmed);
-            if (data.id === gameId && data.pgn) { pgn = data.pgn; break; }
-          } catch (e) { /* skip malformed */ }
-        }
-        if (!pgn) {
+        const fullPgn = await res.text();
+        // Find this specific game in the multi-game PGN by searching for its ID in the headers
+        const games   = fullPgn.split(/(?=\[Event )/).map(s => s.trim()).filter(Boolean);
+        const gamePgn = games.find(g => g.includes(gameId));
+        if (!gamePgn) {
           setStatus(`Game "${gameId}" not found in broadcast round`, 'error');
           return;
         }
-        reviewLoadPGN(pgn);
+        reviewLoadPGN(gamePgn);
         return;
       }
 
