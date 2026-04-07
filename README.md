@@ -21,6 +21,11 @@ Chess Dashboard connects to the [Lichess](https://lichess.org) public API to str
 - **Distance from theory** — how many moves since leaving known opening lines
 - **Eval bar** — colour-coded green/red based on human difficulty, not just who's ahead
 
+**Three ways to use it:**
+- **Live game** — paste a Lichess game ID or username to follow a game in real time
+- **Game review** — paste a Lichess game reference to replay and analyse a finished game from the database
+- **PGN input** — paste any PGN directly to analyse a game from any source
+
 Built with: [Lichess API](https://lichess.org/api) · [Stockfish.js](https://github.com/lichess-org/stockfish.js) · [chess.js](https://github.com/jhlywa/chess.js) · [chessboard.js](https://chessboardjs.com) · vanilla HTML/CSS/JS
 
 ---
@@ -33,6 +38,11 @@ Chess Dashboard se connecte à l'API publique de [Lichess](https://lichess.org) 
 - **Tension de la position** — captures et échecs disponibles (indicateur de la vivacité tactique)
 - **Distance par rapport à la théorie** — nombre de coups depuis la sortie des lignes connues
 - **Barre d'évaluation** — colorée en vert/rouge selon la difficulté humaine, pas seulement l'avantage au tableau
+
+**Trois modes d'utilisation :**
+- **Partie en direct** — collez un identifiant de partie ou un nom d'utilisateur Lichess pour suivre une partie en temps réel
+- **Révision de partie** — collez une référence Lichess pour rejouer et analyser une partie terminée depuis la base de données
+- **Saisie PGN** — collez n'importe quel PGN pour analyser une partie quelle qu'en soit la source
 
 Développé avec : [Lichess API](https://lichess.org/api) · [Stockfish.js](https://github.com/lichess-org/stockfish.js) · [chess.js](https://github.com/jhlywa/chess.js) · [chessboard.js](https://chessboardjs.com) · HTML/CSS/JS vanilla
 
